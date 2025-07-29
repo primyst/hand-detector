@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "QUDUS Hand AI ✋",
+  title: "Hand AI by usman and oluwaseun developed by Qudus✋",
   description: "Real-time hand detection with TensorFlow.js + Next.js",
 };
 
