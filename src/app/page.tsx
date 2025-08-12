@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { HandDetector } from "@/components/HandDetector";
 
 export default function Home() {
   const [name, setName] = useState("");
   const [matricNumber, setMatricNumber] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const router = useRouter();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -14,8 +16,18 @@ export default function Home() {
     }
   };
 
+  const handleDetectionComplete = () => {
+    router.push("/success");
+  };
+
   if (submitted) {
-    return <HandDetector name={name} matricNumber={matricNumber} />;
+    return (
+      <HandDetector
+        name={name}
+        matricNumber={matricNumber}
+        onComplete={handleDetectionComplete}
+      />
+    );
   }
 
   return (
