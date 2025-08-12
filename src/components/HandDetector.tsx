@@ -33,13 +33,15 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
     if (!model) return;
 
     const video = videoRef.current!;
-    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-      video.srcObject = stream;
-      video.onloadedmetadata = () => {
-        video.play();
-        detectLoop();
-      };
-    }).catch(console.error);
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then((stream) => {
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          video.play();
+          detectLoop();
+        };
+      })
+      .catch(console.error);
 
     const detectLoop = async () => {
       const canvas = canvasRef.current!;
@@ -49,12 +51,14 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
 
       async function detect() {
         if (!model) return;
+
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const predictions = await model.estimateHands(video);
 
         if (predictions.length > 0) {
           setStatus("🖐️ Hand detected!");
-          predictions.forEach((hand) => {
+
+          predictions.forEach(hand => {
             hand.landmarks.forEach(([x, y]) => {
               ctx.beginPath();
               ctx.arc(x, y, 6, 0, 2 * Math.PI);
@@ -97,8 +101,15 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
   };
 
   async function logAttendance(userIdentifier: string) {
-    const { error } = await supabase.from("attendance").insert([{ user_identifier: userIdentifier }]);
-    if (error) console.error("Error saving attendance:", error.message);
+    const { error } = await supabase
+      .from("attendance")
+      .insert([{ user_identifier: userIdentifier }]);
+
+    if (error) {
+      console.error("Error saving attendance:", error.message);
+    } else {
+      console.log("Attendance saved successfully");
+    }
   }
 
   return (
