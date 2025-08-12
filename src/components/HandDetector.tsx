@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
@@ -7,6 +8,7 @@ import * as handpose from "@tensorflow-models/handpose";
 import { supabase } from "@/lib/supabaseClient";
 
 export function HandDetector({ name, matricNumber }: { name: string; matricNumber: string }) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
@@ -67,8 +69,9 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
           if (!timeoutRef.current) {
             timeoutRef.current = setTimeout(async () => {
               captureAndDownload();
-              await logAttendance(name, matricNumber);
+              await logAttendance(`${name} - ${matricNumber}`);
               setStatus("✅ Authorised! Screenshot + Attendance saved.");
+              router.push("/success");
               timeoutRef.current = null;
             }, 3000);
           }
@@ -85,7 +88,7 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
 
       detect();
     };
-  }, [model, name, matricNumber]);
+  }, [model, name, matricNumber, router]);
 
   const captureAndDownload = () => {
     const canvas = canvasRef.current!;
@@ -95,25 +98,17 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
     link.click();
   };
 
-  async function logAttendance(userIdentifier: string, router: any) {
-  const { error } = await supabase
-    .from("attendance")
-    .insert([{ user_identifier: userIdentifier }]);
+  async function logAttendance(userIdentifier: string) {
+    const { error } = await supabase
+      .from("attendance")
+      .insert([{ user_identifier: userIdentifier }]);
 
-  if (error) {
-    console.error("Error saving attendance:", error.message);
-  } else {
-    console.log("Attendance saved successfully");
-    router.push("/success");
+    if (error) {
+      console.error("Error saving attendance:", error.message);
+    } else {
+      console.log("Attendance saved successfully");
+    }
   }
-}
-
-  if (error) {
-    console.error("Error saving attendance:", error.message);
-  } else {
-    console.log("Attendance saved successfully");
-  }
-};
 
   return (
     <div className="relative w-full h-full">
