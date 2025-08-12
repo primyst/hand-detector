@@ -12,7 +12,7 @@ interface HandDetectorProps {
   onComplete?: () => void;
 }
 
-export function HandDetector({ name, matricNumber, onComplete }: HandDetectorProps) {
+export default function HandDetector({ name, matricNumber, onComplete }: HandDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
@@ -33,16 +33,13 @@ export function HandDetector({ name, matricNumber, onComplete }: HandDetectorPro
     if (!model) return;
 
     const video = videoRef.current!;
-    navigator.mediaDevices
-      .getUserMedia({ video: true })
-      .then((stream) => {
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          video.play();
-          detectLoop();
-        };
-      })
-      .catch(console.error);
+    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play();
+        detectLoop();
+      };
+    }).catch(console.error);
 
     const detectLoop = async () => {
       const canvas = canvasRef.current!;
@@ -52,13 +49,11 @@ export function HandDetector({ name, matricNumber, onComplete }: HandDetectorPro
 
       async function detect() {
         if (!model) return;
-
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const predictions = await model.estimateHands(video);
 
         if (predictions.length > 0) {
           setStatus("🖐️ Hand detected!");
-
           predictions.forEach((hand) => {
             hand.landmarks.forEach(([x, y]) => {
               ctx.beginPath();
@@ -75,7 +70,7 @@ export function HandDetector({ name, matricNumber, onComplete }: HandDetectorPro
               captureAndDownload();
               await logAttendance(`${name} - ${matricNumber}`);
               setStatus("✅ Authorised! Screenshot + Attendance saved.");
-              if (onComplete) onComplete(); // trigger parent redirect
+              if (onComplete) onComplete();
               timeoutRef.current = null;
             }, 3000);
           }
@@ -86,7 +81,6 @@ export function HandDetector({ name, matricNumber, onComplete }: HandDetectorPro
             timeoutRef.current = null;
           }
         }
-
         requestAnimationFrame(detect);
       }
 
@@ -103,15 +97,8 @@ export function HandDetector({ name, matricNumber, onComplete }: HandDetectorPro
   };
 
   async function logAttendance(userIdentifier: string) {
-    const { error } = await supabase
-      .from("attendance")
-      .insert([{ user_identifier: userIdentifier }]);
-
-    if (error) {
-      console.error("Error saving attendance:", error.message);
-    } else {
-      console.log("Attendance saved successfully");
-    }
+    const { error } = await supabase.from("attendance").insert([{ user_identifier: userIdentifier }]);
+    if (error) console.error("Error saving attendance:", error.message);
   }
 
   return (
