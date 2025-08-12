@@ -95,17 +95,17 @@ export function HandDetector() {
     link.click();
   };
 
-  const logAttendance = async (userIdentifier: string) => {
-    const { error } = await supabase
-      .from("attendance")
-      .insert([{ user_identifier: userIdentifier }]);
+  const logAttendance = async (name: string, matricNumber: string) => {
+  const { error } = await supabase
+    .from("attendance")
+    .insert([{ name, matric_number: matricNumber }]);
 
-    if (error) {
-      console.error("Error saving attendance:", error.message);
-    } else {
-      console.log("Attendance saved successfully");
-    }
-  };
+  if (error) {
+    console.error("Error saving attendance:", error.message);
+  } else {
+    console.log("Attendance saved successfully");
+  }
+};
 
   return (
     <div className="relative w-full h-full">
