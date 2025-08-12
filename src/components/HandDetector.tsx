@@ -21,10 +21,15 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
 
   useEffect(() => {
     async function loadModel() {
-      await tf.setBackend("webgl");
-      const loadedModel = await handpose.load();
-      setModel(loadedModel);
-      setStatus("✅ Model loaded. Show your hand!");
+      try {
+        await tf.setBackend("webgl");
+        const loadedModel = await handpose.load();
+        setModel(loadedModel);
+        setStatus("✅ Model loaded. Show your hand!");
+      } catch (err) {
+        console.error("Error loading model:", err);
+        setStatus("❌ Failed to load model.");
+      }
     }
     loadModel();
   }, []);
@@ -33,15 +38,28 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
     if (!model) return;
 
     const video = videoRef.current!;
+    setStatus("📷 Requesting camera...");
+
     navigator.mediaDevices.getUserMedia({ video: true })
       .then((stream) => {
+        console.log("Camera stream obtained", stream);
         video.srcObject = stream;
         video.onloadedmetadata = () => {
-          video.play();
-          detectLoop();
+          video.play()
+            .then(() => {
+              setStatus("▶️ Video playing, detecting hand...");
+              detectLoop();
+            })
+            .catch(err => {
+              console.error("Video play error:", err);
+              setStatus("❌ Unable to play video.");
+            });
         };
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error("Camera error:", err);
+        setStatus("⚠️ Cannot access camera. Check permissions and HTTPS.");
+      });
 
     const detectLoop = async () => {
       const canvas = canvasRef.current!;
@@ -52,7 +70,9 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
       async function detect() {
         if (!model) return;
 
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
         const predictions = await model.estimateHands(video);
 
         if (predictions.length > 0) {
