@@ -1,57 +1,61 @@
 "use client";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { HandDetector } from "@/components/HandDetector";
+import HandDetector from "@/components/HandDetector";
+import { supabase } from "@/lib/supabaseClient";
 
-export default function Home() {
+export default function Page() {
   const [name, setName] = useState("");
   const [matricNumber, setMatricNumber] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [startDetection, setStartDetection] = useState(false);
   const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (name.trim() && matricNumber.trim()) {
-      setSubmitted(true);
+  async function logAttendance(userIdentifier: string) {
+    const { error } = await supabase
+      .from("attendance")
+      .insert([{ user_identifier: userIdentifier }]);
+
+    if (error) {
+      console.error("Error saving attendance:", error.message);
+    } else {
+      console.log("Attendance saved successfully");
+      router.push("/success");
     }
-  };
-
-  const handleDetectionComplete = () => {
-    router.push("/success");
-  };
-
-  if (submitted) {
-    return (
-      <HandDetector
-        name={name}
-        matricNumber={matricNumber}
-        onComplete={handleDetectionComplete}
-      />
-    );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 max-w-md mx-auto space-y-4">
-      <input
-        type="text"
-        placeholder="Your Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="w-full p-2 border rounded"
-      />
-      <input
-        type="text"
-        placeholder="Matric Number"
-        value={matricNumber}
-        onChange={(e) => setMatricNumber(e.target.value)}
-        className="w-full p-2 border rounded"
-      />
-      <button
-        type="submit"
-        className="px-4 py-2 bg-blue-500 text-white rounded"
-      >
-        Continue to Hand Detection
-      </button>
-    </form>
+    <div className="p-6 max-w-md mx-auto">
+      {!startDetection ? (
+        <div className="space-y-4">
+          <input
+            type="text"
+            placeholder="Your Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full p-2 border rounded"
+          />
+          <input
+            type="text"
+            placeholder="Matric Number"
+            value={matricNumber}
+            onChange={(e) => setMatricNumber(e.target.value)}
+            className="w-full p-2 border rounded"
+          />
+          <button
+            onClick={() => setStartDetection(true)}
+            className="w-full bg-blue-500 text-white py-2 rounded"
+          >
+            Next: Hand Detector
+          </button>
+        </div>
+      ) : (
+        <HandDetector
+          onHandDetected={() =>
+            logAttendance(`${name} - ${matricNumber}`)
+          }
+        />
+      )}
+    </div>
   );
 }
