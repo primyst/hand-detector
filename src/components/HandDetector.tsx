@@ -15,6 +15,10 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
   const [status, setStatus] = useState("🚀 Loading model...");
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  if (onComplete) {
+  onComplete();
+}
+
   useEffect(() => {
     async function loadModel() {
       await tf.setBackend("webgl");
