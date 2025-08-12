@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 
-export default function ClientSuccess() {
+export default function SuccessPage() {
   const searchParams = useSearchParams();
   const name = searchParams.get("name") || "Guest";
   const matricNumber = searchParams.get("matricNumber") || "Unknown";
