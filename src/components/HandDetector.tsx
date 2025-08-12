@@ -104,7 +104,7 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
     console.error("Error saving attendance:", error.message);
   } else {
     console.log("Attendance saved successfully");
-    router.push("/success"); // Redirect to success page
+    router.push("/success");
   }
 }
 
