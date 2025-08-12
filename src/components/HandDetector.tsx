@@ -6,7 +6,7 @@ import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
 import { supabase } from "@/lib/supabaseClient";
 
-export function HandDetector() {
+export function HandDetector({ name, matricNumber }: { name: string; matricNumber: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
@@ -67,7 +67,7 @@ export function HandDetector() {
           if (!timeoutRef.current) {
             timeoutRef.current = setTimeout(async () => {
               captureAndDownload();
-              await logAttendance("guest_user_001"); // change to real ID if available
+              await logAttendance(name, matricNumber);
               setStatus("✅ Authorised! Screenshot + Attendance saved.");
               timeoutRef.current = null;
             }, 3000);
@@ -85,7 +85,7 @@ export function HandDetector() {
 
       detect();
     };
-  }, [model]);
+  }, [model, name, matricNumber]);
 
   const captureAndDownload = () => {
     const canvas = canvasRef.current!;
