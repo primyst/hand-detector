@@ -4,13 +4,13 @@ import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
+import { supabase } from "@/lib/supabaseClient";
 
 export function HandDetector() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
   const [status, setStatus] = useState("🚀 Loading model...");
-  const [detected, setDetected] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -52,9 +52,7 @@ export function HandDetector() {
 
         if (predictions.length > 0) {
           setStatus("🖐️ Hand detected!");
-          setDetected(true);
 
-          // Draw points
           predictions.forEach((hand) => {
             hand.landmarks.forEach(([x, y]) => {
               ctx.beginPath();
@@ -66,19 +64,16 @@ export function HandDetector() {
             });
           });
 
-          // If no timer already, start 3s timer
           if (!timeoutRef.current) {
-            timeoutRef.current = setTimeout(() => {
+            timeoutRef.current = setTimeout(async () => {
               captureAndDownload();
-              setStatus("✅ Authorised! Screenshot taken.");
-              timeoutRef.current = null; // Reset
+              await logAttendance("guest_user_001"); // change to real ID if available
+              setStatus("✅ Authorised! Screenshot + Attendance saved.");
+              timeoutRef.current = null;
             }, 3000);
           }
         } else {
           setStatus("👀 No hand detected");
-          setDetected(false);
-
-          // Clear pending screenshot timeout if hand is gone
           if (timeoutRef.current) {
             clearTimeout(timeoutRef.current);
             timeoutRef.current = null;
@@ -98,6 +93,18 @@ export function HandDetector() {
     link.download = "hand-detected.png";
     link.href = canvas.toDataURL("image/png");
     link.click();
+  };
+
+  const logAttendance = async (userIdentifier: string) => {
+    const { error } = await supabase
+      .from("attendance")
+      .insert([{ user_identifier: userIdentifier }]);
+
+    if (error) {
+      console.error("Error saving attendance:", error.message);
+    } else {
+      console.log("Attendance saved successfully");
+    }
   };
 
   return (
