@@ -133,12 +133,20 @@ export default function HandDetector({ name, matricNumber, onComplete }: HandDet
   }
 
   return (
-    <div className="relative w-full h-full">
-      <video ref={videoRef} className="absolute w-full h-full object-cover" />
-      <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" />
-      <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-60 text-sm px-4 py-1 rounded-full text-teal-400">
-        {status}
-      </div>
+  <div className="relative w-full h-screen bg-black">
+    <video
+      ref={videoRef}
+      className="absolute top-0 left-0 w-full h-full object-cover"
+      playsInline
+      muted
+    />
+    <canvas
+      ref={canvasRef}
+      className="absolute top-0 left-0 w-full h-full"
+    />
+    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-60 text-sm px-4 py-1 rounded-full text-teal-400 z-10">
+      {status}
     </div>
-  );
+  </div>
+ );
 }
