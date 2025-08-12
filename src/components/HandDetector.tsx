@@ -1,23 +1,23 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
 import { supabase } from "@/lib/supabaseClient";
 
-export function HandDetector({ name, matricNumber }: { name: string; matricNumber: string }) {
-  const router = useRouter();
+interface HandDetectorProps {
+  name: string;
+  matricNumber: string;
+  onComplete?: () => void;
+}
+
+export function HandDetector({ name, matricNumber, onComplete }: HandDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
   const [status, setStatus] = useState("🚀 Loading model...");
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  if (onComplete) {
-  onComplete();
-}
 
   useEffect(() => {
     async function loadModel() {
@@ -75,7 +75,7 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
               captureAndDownload();
               await logAttendance(`${name} - ${matricNumber}`);
               setStatus("✅ Authorised! Screenshot + Attendance saved.");
-              router.push("/success");
+              if (onComplete) onComplete(); // trigger parent redirect
               timeoutRef.current = null;
             }, 3000);
           }
@@ -92,7 +92,7 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
 
       detect();
     };
-  }, [model, name, matricNumber, router]);
+  }, [model, name, matricNumber, onComplete]);
 
   const captureAndDownload = () => {
     const canvas = canvasRef.current!;
