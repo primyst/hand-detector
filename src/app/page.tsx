@@ -3,26 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import HandDetector from "@/components/HandDetector";
-import { supabase } from "@/lib/supabaseClient";
 
 export default function Page() {
   const [name, setName] = useState("");
   const [matricNumber, setMatricNumber] = useState("");
   const [startDetection, setStartDetection] = useState(false);
   const router = useRouter();
-
-  async function logAttendance(userIdentifier: string) {
-    const { error } = await supabase
-      .from("attendance")
-      .insert([{ user_identifier: userIdentifier }]);
-
-    if (error) {
-      console.error("Error saving attendance:", error.message);
-    } else {
-      console.log("Attendance saved successfully");
-      router.push("/success");
-    }
-  }
 
   return (
     <div className="p-6 max-w-md mx-auto">
@@ -51,9 +37,9 @@ export default function Page() {
         </div>
       ) : (
         <HandDetector
-          onHandDetected={() =>
-            logAttendance(`${name} - ${matricNumber}`)
-          }
+          name={name}
+          matricNumber={matricNumber}
+          onComplete={() => router.push("/success")}
         />
       )}
     </div>
