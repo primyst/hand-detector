@@ -95,10 +95,18 @@ export function HandDetector({ name, matricNumber }: { name: string; matricNumbe
     link.click();
   };
 
-  const logAttendance = async (name: string, matricNumber: string) => {
+  async function logAttendance(userIdentifier: string, router: any) {
   const { error } = await supabase
     .from("attendance")
-    .insert([{ name, matric_number: matricNumber }]);
+    .insert([{ user_identifier: userIdentifier }]);
+
+  if (error) {
+    console.error("Error saving attendance:", error.message);
+  } else {
+    console.log("Attendance saved successfully");
+    router.push("/success"); // Redirect to success page
+  }
+}
 
   if (error) {
     console.error("Error saving attendance:", error.message);
