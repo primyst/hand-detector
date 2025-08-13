@@ -26,6 +26,7 @@ export default function Home() {
           }}
           className="space-y-4"
         >
+          <h1 className="text-cyan-800 text-2xl">HAND DETECTION FOR ATTENDANCE SYSTEM</h1>       
           <input
             type="text"
             placeholder="Your Name"
