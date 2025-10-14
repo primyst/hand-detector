@@ -1,10 +1,10 @@
 "use client";
-
 import { useEffect, useRef, useState } from "react";
 import * as tf from "@tensorflow/tfjs-core";
+import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
-import { students } from "@/data/students"; // your 100 Nigerian names
+import { students } from "@/data/students"; // ← your 100 Nigerian names
 
 interface Student {
   name: string;
@@ -18,44 +18,39 @@ export default function AttendanceDashboard() {
   );
   const [selectedStudent, setSelectedStudent] = useState<string>("");
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [detector, setDetector] =
-    useState<handPoseDetection.HandDetector | null>(null);
+  const [model, setModel] = useState<handpose.HandPose | null>(null);
   const [status, setStatus] = useState<string>("Idle");
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const detectionRef = useRef<boolean>(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const runningRef = useRef<boolean>(false);
 
-  // Load MediaPipe model
+  // Load Handpose Model
   useEffect(() => {
     async function loadModel() {
-      await tf.setBackend("webgl");
-      await tf.ready();
-
-      const model = handPoseDetection.SupportedModels.MediaPipeHands;
-      const detectorConfig: handPoseDetection.MediaPipeHandsTfjsModelConfig = {
-        runtime: "tfjs",
-        modelType: "lite", // options: 'lite', 'full'
-      };
-
-      const newDetector = await handPoseDetection.createDetector(
-        model,
-        detectorConfig
-      );
-      setDetector(newDetector);
-      setStatus("✅ Model loaded — ready to start");
+      try {
+        await tf.setBackend("webgl");
+        await tf.ready();
+        const loaded = await handpose.load();
+        setModel(loaded);
+        setStatus("✅ Model loaded. Ready to start attendance.");
+      } catch (err) {
+        console.error("Model load error:", err);
+        setStatus("❌ Failed to load model.");
+      }
     }
-
     loadModel();
   }, []);
 
-  // Start the attendance detection
+  // Start attendance detection
   useEffect(() => {
-    if (!isRunning || !detector) return;
+    if (!isRunning || !model) return;
 
     const video = videoRef.current!;
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
-    let stop = false;
+    runningRef.current = true;
 
     async function setupCamera() {
       setStatus("📷 Requesting camera...");
@@ -67,82 +62,85 @@ export default function AttendanceDashboard() {
       return new Promise<void>((resolve) => {
         video.onloadedmetadata = () => {
           video.play().then(() => {
-            setStatus("▶️ Video playing, detecting hand...");
+            setStatus("▶️ Video started. Detecting hand...");
             resolve();
           });
         };
       });
     }
 
-    async function detectHands() {
-      if (!detector || stop) return;
+    async function detectLoop() {
+      if (!runningRef.current || !model) return;
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      try {
-        const hands = await detector.estimateHands(video, { flipHorizontal: true });
+      const predictions = await model.estimateHands(video, true);
 
-        if (hands.length > 0 && selectedStudent) {
-          setStatus(`🖐️ Hand detected for ${selectedStudent}`);
+      if (predictions.length > 0 && selectedStudent) {
+        setStatus(`🖐️ Hand detected for ${selectedStudent}`);
 
-          hands.forEach((hand) => {
-            hand.keypoints?.forEach((pt) => {
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
-              ctx.fillStyle = "#00FFCC";
-              ctx.fill();
-            });
+        predictions.forEach((hand) => {
+          hand.landmarks.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "#00ffcc";
+            ctx.shadowColor = "#00ffcc";
+            ctx.shadowBlur = 10;
+            ctx.fill();
           });
+        });
 
-          // Mark selected student present
-          setStudentList((prev) =>
-            prev.map((s) =>
-              s.name === selectedStudent ? { ...s, status: "Present" } : s
-            )
-          );
-        } else if (selectedStudent) {
-          setStatus(`👀 No hand detected for ${selectedStudent}`);
+        if (!timeoutRef.current) {
+          timeoutRef.current = setTimeout(() => {
+            setStudentList((prev) =>
+              prev.map((s) =>
+                s.name === selectedStudent ? { ...s, status: "Present" } : s
+              )
+            );
+            setStatus(`✅ Marked ${selectedStudent} as Present`);
+            timeoutRef.current = null;
+          }, 1500);
         }
-      } catch (err) {
-        console.error("Detection error:", err);
-        setStatus("⚠️ Error during detection");
+      } else if (selectedStudent) {
+        setStatus(`👀 No hand detected for ${selectedStudent}`);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
       }
 
-      if (detectionRef.current) requestAnimationFrame(detectHands);
+      if (runningRef.current) requestAnimationFrame(detectLoop);
     }
 
     (async () => {
       await setupCamera();
-      detectionRef.current = true;
-      detectHands();
+      await tf.ready();
+      detectLoop();
     })();
 
     return () => {
-      stop = true;
-      detectionRef.current = false;
+      runningRef.current = false;
       const tracks = (video.srcObject as MediaStream | null)?.getTracks();
       tracks?.forEach((t) => t.stop());
     };
-  }, [isRunning, detector, selectedStudent]);
+  }, [isRunning, model, selectedStudent]);
 
-  // Stop attendance
   const handleStop = () => {
     setIsRunning(false);
+    runningRef.current = false;
     setSelectedStudent("");
-    detectionRef.current = false;
     setStatus("✅ Attendance stopped");
   };
 
-  // Download attendance as CSV
   const handleDownloadCSV = () => {
     const headers = ["Name", "Matric Number", "Status"];
     const rows = studentList.map((s) => [s.name, s.matricNumber, s.status]);
     const csvContent =
       "data:text/csv;charset=utf-8," +
-      [headers, ...rows].map((e) => e.join(",")).join("\n");
+      [headers, ...rows].map((r) => r.join(",")).join("\n");
 
     const link = document.createElement("a");
     link.href = encodeURI(csvContent);
@@ -179,6 +177,7 @@ export default function AttendanceDashboard() {
         >
           ⏹ Stop Attendance
         </button>
+
         <select
           disabled={!isRunning}
           value={selectedStudent}
@@ -192,6 +191,7 @@ export default function AttendanceDashboard() {
             </option>
           ))}
         </select>
+
         {!isRunning && (
           <button
             onClick={handleDownloadCSV}
@@ -202,7 +202,7 @@ export default function AttendanceDashboard() {
         )}
       </div>
 
-      {/* Camera view */}
+      {/* Camera */}
       {isRunning && (
         <div className="relative w-full max-w-3xl mx-auto h-80 mb-6 border rounded-lg overflow-hidden">
           <video
