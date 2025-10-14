@@ -1,169 +1,213 @@
 "use client";
+import { useEffect, useRef, useState } from "react";
+import * as tf from "@tensorflow/tfjs-core";
+import "@tensorflow/tfjs-converter";
+import "@tensorflow/tfjs-backend-webgl";
+import * as handpose from "@tensorflow-models/handpose";
+import { students } from "@/data/students"; // your 100-name list
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import HandDetector from "@/components/HandDetector";
-
-// --- Type Definitions ---
 interface Student {
-  id: number;
   name: string;
   matricNumber: string;
-  courseCode: string;
+  status: "Present" | "Absent";
 }
 
-interface Attendance {
-  id: number;
-  matricNumber: string;
-  courseCode: string;
-  date: string;
-  timeIn: string;
-}
-
-// --- Dashboard Component ---
-export default function Dashboard() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [attendance, setAttendance] = useState<Attendance[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<string>("CSC401");
-  const [today, setToday] = useState<string>(
-    new Date().toISOString().split("T")[0]
+export default function AttendanceDashboard() {
+  const [studentList, setStudentList] = useState<Student[]>(
+    students.map((s) => ({ ...s, status: "Absent" }))
   );
-  const [showDetector, setShowDetector] = useState<boolean>(false);
+  const [selectedStudent, setSelectedStudent] = useState<string>("");
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [model, setModel] = useState<handpose.HandPose | null>(null);
+  const [status, setStatus] = useState<string>("Idle");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Fetch data from Supabase
+  // Load TensorFlow Handpose model
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: studentsData, error: studentErr } = await supabase
-        .from("students")
-        .select("id, name, matricNumber, courseCode")
-        .eq("courseCode", selectedCourse);
+    async function loadModel() {
+      await tf.setBackend("webgl");
+      const loaded = await handpose.load();
+      setModel(loaded);
+      setStatus("✅ Model Loaded");
+    }
+    loadModel();
+  }, []);
 
-      const { data: attendanceData, error: attendanceErr } = await supabase
-        .from("attendance")
-        .select("id, matricNumber, courseCode, date, timeIn")
-        .eq("courseCode", selectedCourse)
-        .eq("date", today);
+  // Start camera + detection loop
+  useEffect(() => {
+    if (!isRunning || !model) return;
 
-      if (!studentErr && studentsData) setStudents(studentsData);
-      if (!attendanceErr && attendanceData) setAttendance(attendanceData);
+    const video = videoRef.current!;
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      .then((stream) => {
+        video.srcObject = stream;
+        video.play();
+      })
+      .catch(() => setStatus("⚠️ Camera access denied"));
+
+    const detectLoop = async () => {
+      if (!video || !model) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const predictions = await model.estimateHands(video);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      if (predictions.length > 0 && selectedStudent) {
+        // Draw hand landmarks
+        predictions.forEach((hand) => {
+          hand.landmarks.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = "#00FFCC";
+            ctx.fill();
+          });
+        });
+
+        // Mark as present if detected
+        setStudentList((prev) =>
+          prev.map((s) =>
+            s.name === selectedStudent ? { ...s, status: "Present" } : s
+          )
+        );
+        setStatus(`🖐️ Hand detected for ${selectedStudent}`);
+      } else if (selectedStudent) {
+        setStatus(`No hand detected for ${selectedStudent}`);
+      }
+
+      if (isRunning) requestAnimationFrame(detectLoop);
     };
 
-    fetchData();
-  }, [selectedCourse, today]);
+    detectLoop();
 
-  // Determine attendance status
-  const getStatus = (matricNumber: string): "Present" | "Absent" => {
-    return attendance.some((a) => a.matricNumber === matricNumber)
-      ? "Present"
-      : "Absent";
+    return () => {
+      const tracks = video.srcObject as MediaStream | null;
+      tracks?.getTracks().forEach((t) => t.stop());
+    };
+  }, [isRunning, model, selectedStudent]);
+
+  // Stop attendance
+  const handleStop = () => {
+    setIsRunning(false);
+    setSelectedStudent("");
+    setStatus("✅ Attendance stopped");
   };
 
-  const totalStudents = students.length;
-  const totalPresent = attendance.length;
+  const totalStudents = studentList.length;
+  const totalPresent = studentList.filter((s) => s.status === "Present").length;
   const totalAbsent = totalStudents - totalPresent;
 
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold text-cyan-800 mb-6 text-center">
-        Hand Gesture-Based Student Attendance Dashboard
+    <div className="p-6">
+      <h1 className="text-3xl text-cyan-800 font-bold text-center mb-4">
+        🖐️ Hand Gesture Attendance Dashboard
       </h1>
+      <p className="text-center text-gray-600 mb-6">
+        Course: <strong>CSC401 — Artificial Intelligence</strong>
+      </p>
 
-      {/* Filters */}
+      {/* Controls */}
       <div className="flex flex-wrap justify-center gap-4 mb-6">
-        <select
-          className="border rounded p-2"
-          value={selectedCourse}
-          onChange={(e) => setSelectedCourse(e.target.value)}
-        >
-          <option value="CSC401">CSC401</option>
-          <option value="CSC402">CSC402</option>
-          <option value="CSC403">CSC403</option>
-        </select>
-
-        <input
-          type="date"
-          className="border rounded p-2"
-          value={today}
-          onChange={(e) => setToday(e.target.value)}
-        />
-
         <button
-          onClick={() => setShowDetector(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition"
+          onClick={() => setIsRunning(true)}
+          disabled={isRunning}
+          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:opacity-50"
         >
-          Take Attendance (Show Hand)
+          ▶️ Start Attendance
         </button>
+        <button
+          onClick={handleStop}
+          disabled={!isRunning}
+          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50"
+        >
+          ⏹ Stop Attendance
+        </button>
+
+        <select
+          disabled={!isRunning}
+          value={selectedStudent}
+          onChange={(e) => setSelectedStudent(e.target.value)}
+          className="border rounded p-2"
+        >
+          <option value="">-- Select Student --</option>
+          {studentList.map((s) => (
+            <option key={s.matricNumber} value={s.name}>
+              {s.name} ({s.matricNumber})
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-6 text-center">
-        <div className="bg-blue-50 rounded-lg p-4">
-          <h2 className="font-semibold text-blue-700">Total Students</h2>
+      {/* Camera Display */}
+      {isRunning && (
+        <div className="relative w-full max-w-3xl mx-auto h-80 mb-6 border rounded-lg overflow-hidden">
+          <video
+            ref={videoRef}
+            className="absolute w-full h-full object-cover"
+            playsInline
+            muted
+          />
+          <canvas
+            ref={canvasRef}
+            className="absolute w-full h-full"
+          />
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-teal-300 px-4 py-1 rounded-full text-sm">
+            {status}
+          </div>
+        </div>
+      )}
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-4 text-center mb-6">
+        <div className="bg-blue-50 rounded-lg p-3">
+          <h2 className="text-blue-800 font-semibold">Total Students</h2>
           <p className="text-2xl font-bold">{totalStudents}</p>
         </div>
-        <div className="bg-green-50 rounded-lg p-4">
-          <h2 className="font-semibold text-green-700">Present</h2>
+        <div className="bg-green-50 rounded-lg p-3">
+          <h2 className="text-green-800 font-semibold">Present</h2>
           <p className="text-2xl font-bold">{totalPresent}</p>
         </div>
-        <div className="bg-red-50 rounded-lg p-4">
-          <h2 className="font-semibold text-red-700">Absent</h2>
+        <div className="bg-red-50 rounded-lg p-3">
+          <h2 className="text-red-800 font-semibold">Absent</h2>
           <p className="text-2xl font-bold">{totalAbsent}</p>
         </div>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="min-w-full border border-gray-200 rounded-lg">
+        <table className="min-w-full border border-gray-300 rounded-lg text-center">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-3 border">Name</th>
-              <th className="p-3 border">Matric Number</th>
-              <th className="p-3 border">Course</th>
-              <th className="p-3 border">Status</th>
+              <th className="p-2 border">Name</th>
+              <th className="p-2 border">Matric Number</th>
+              <th className="p-2 border">Status</th>
             </tr>
           </thead>
           <tbody>
-            {students.map((s) => (
-              <tr key={s.id} className="text-center">
+            {studentList.map((s) => (
+              <tr key={s.matricNumber}>
                 <td className="border p-2">{s.name}</td>
                 <td className="border p-2">{s.matricNumber}</td>
-                <td className="border p-2">{s.courseCode}</td>
                 <td
                   className={`border p-2 font-semibold ${
-                    getStatus(s.matricNumber) === "Present"
+                    s.status === "Present"
                       ? "text-green-600"
                       : "text-red-600"
                   }`}
                 >
-                  {getStatus(s.matricNumber)}
+                  {s.status}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {/* Hand Detector Modal */}
-      {showDetector && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-          <div className="relative w-full h-full max-w-4xl mx-auto">
-            <button
-              onClick={() => setShowDetector(false)}
-              className="absolute top-4 right-4 z-50 bg-white px-3 py-1 rounded shadow text-black"
-            >
-              ✖ Close
-            </button>
-            <HandDetector
-              name="Live Attendance"
-              matricNumber="auto"
-              onComplete={() => {
-                setShowDetector(false);
-                window.location.reload();
-              }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
