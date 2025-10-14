@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-backend-webgl";
-import * as handPoseDetection from "@tensorflow-models/hand-pose-detection";
+import * as handpose from "@tensorflow-models/handpose";
 import { students } from "@/data/students"; // your 100 Nigerian names
 
 interface Student {
