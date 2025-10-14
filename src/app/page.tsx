@@ -4,7 +4,7 @@ import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
-import { students } from "@/data/students"; // your 100-name list
+import { students } from "@/data/students"; // your 100 names
 
 interface Student {
   name: string;
@@ -34,7 +34,7 @@ export default function AttendanceDashboard() {
     loadModel();
   }, []);
 
-  // Start camera + detection loop
+  // Start camera and detection loop
   useEffect(() => {
     if (!isRunning || !model) return;
 
@@ -60,7 +60,7 @@ export default function AttendanceDashboard() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       if (predictions.length > 0 && selectedStudent) {
-        // Draw hand landmarks
+        // Draw hand points
         predictions.forEach((hand) => {
           hand.landmarks.forEach(([x, y]) => {
             ctx.beginPath();
@@ -70,7 +70,7 @@ export default function AttendanceDashboard() {
           });
         });
 
-        // Mark as present if detected
+        // Mark student as present
         setStudentList((prev) =>
           prev.map((s) =>
             s.name === selectedStudent ? { ...s, status: "Present" } : s
@@ -97,6 +97,20 @@ export default function AttendanceDashboard() {
     setIsRunning(false);
     setSelectedStudent("");
     setStatus("✅ Attendance stopped");
+  };
+
+  // Download attendance as CSV
+  const handleDownloadCSV = () => {
+    const headers = ["Name", "Matric Number", "Status"];
+    const rows = studentList.map((s) => [s.name, s.matricNumber, s.status]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers, ...rows].map((e) => e.join(",")).join("\n");
+
+    const link = document.createElement("a");
+    link.href = encodeURI(csvContent);
+    link.download = "attendance_list.csv";
+    link.click();
   };
 
   const totalStudents = studentList.length;
@@ -128,7 +142,6 @@ export default function AttendanceDashboard() {
         >
           ⏹ Stop Attendance
         </button>
-
         <select
           disabled={!isRunning}
           value={selectedStudent}
@@ -142,9 +155,18 @@ export default function AttendanceDashboard() {
             </option>
           ))}
         </select>
+
+        {!isRunning && (
+          <button
+            onClick={handleDownloadCSV}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            📥 Download CSV
+          </button>
+        )}
       </div>
 
-      {/* Camera Display */}
+      {/* Camera display */}
       {isRunning && (
         <div className="relative w-full max-w-3xl mx-auto h-80 mb-6 border rounded-lg overflow-hidden">
           <video
@@ -153,10 +175,7 @@ export default function AttendanceDashboard() {
             playsInline
             muted
           />
-          <canvas
-            ref={canvasRef}
-            className="absolute w-full h-full"
-          />
+          <canvas ref={canvasRef} className="absolute w-full h-full" />
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-teal-300 px-4 py-1 rounded-full text-sm">
             {status}
           </div>
