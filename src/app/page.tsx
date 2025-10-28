@@ -70,57 +70,60 @@ export default function AttendanceDashboard() {
     }
 
     async function detectLoop() {
-      if (!runningRef.current || !model) return;
+  if (!runningRef.current || !model) return;
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const predictions = await model.estimateHands(video, true);
+  const predictions = await model.estimateHands(video, true);
 
-      const currentIndex = currentIndexRef.current;
-      const currentStudent = studentList[currentIndex];
+  const currentIndex = currentIndexRef.current;
 
-      if (predictions.length > 0 && currentIndex < 2) {
-        setStatus(`🖐️ Hand detected for ${currentStudent.name}`);
+  // Draw hand points if any
+  if (predictions.length > 0) {
+    predictions.forEach((hand) => {
+      hand.landmarks.forEach(([x, y]) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#00ffcc";
+        ctx.shadowColor = "#00ffcc";
+        ctx.shadowBlur = 10;
+        ctx.fill();
+      });
+    });
+  }
 
-        // draw hand points
-        predictions.forEach((hand) => {
-          hand.landmarks.forEach(([x, y]) => {
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = "#00ffcc";
-            ctx.shadowColor = "#00ffcc";
-            ctx.shadowBlur = 10;
-            ctx.fill();
-          });
-        });
+  if (predictions.length > 0 && currentIndex < 2) {
+    // Hand detected and first 2 students
+    const currentStudent = studentList[currentIndex];
 
-        if (!timeoutRef.current) {
-          timeoutRef.current = setTimeout(() => {
-            setStudentList((prev) =>
-              prev.map((s, i) =>
-                i === currentIndex ? { ...s, status: "Present" } : s
-              )
-            );
-            setStatus(`✅ Marked ${currentStudent.name} as Present`);
-            currentIndexRef.current += 1;
-            timeoutRef.current = null;
-          }, 1500);
-        }
-      } else if (currentIndex < 2) {
-        setStatus(`👀 Waiting for hand for ${currentStudent.name}`);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-      } else {
-        setStatus("⚠️ Only first two students can be marked present");
-      }
-
-      if (runningRef.current) requestAnimationFrame(detectLoop);
+    if (!timeoutRef.current) {
+      timeoutRef.current = setTimeout(() => {
+        setStudentList((prev) =>
+          prev.map((s, i) =>
+            i === currentIndex ? { ...s, status: "Present" } : s
+          )
+        );
+        setStatus(`✅ Marked ${currentStudent.name} as Present`);
+        currentIndexRef.current += 1;
+        timeoutRef.current = null;
+      }, 1500);
+    } else {
+      setStatus("🖐️ Wait for hand...");
     }
+  } else {
+    // Either no hand or past first 2 students
+    setStatus("🖐️ Wait for hand...");
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }
+
+  if (runningRef.current) requestAnimationFrame(detectLoop);
+}
 
     (async () => {
       await setupCamera();
@@ -248,10 +251,6 @@ export default function AttendanceDashboard() {
           </tbody>
         </table>
       </div>
-
-      <p className="text-center mt-4 text-gray-500 text-sm">
-        ⚠️ Note: Only the first two students on the list are marked for demonstration. For educational purposes only.
-      </p>
     </div>
   );
 }
