@@ -16,17 +16,17 @@ export default function AttendanceDashboard() {
   const [studentList, setStudentList] = useState<Student[]>(
     students.map((s) => ({ ...s, status: "Absent" }))
   );
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isRunning, setIsRunning] = useState(false);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
-  const [status, setStatus] = useState<string>("Idle");
+  const [status, setStatus] = useState("Idle");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const runningRef = useRef<boolean>(false);
-  const currentIndexRef = useRef<number>(0); // track first 2 students
+  const runningRef = useRef(false);
+  const currentIndexRef = useRef(0);
+  const handHoldStartRef = useRef<number | null>(null);
 
-  // Load Handpose Model
+  // Load handpose model
   useEffect(() => {
     async function loadModel() {
       try {
@@ -36,14 +36,14 @@ export default function AttendanceDashboard() {
         setModel(loaded);
         setStatus("✅ Model loaded. Ready to start attendance.");
       } catch (err) {
-        console.error("Model load error:", err);
+        console.error(err);
         setStatus("❌ Failed to load model.");
       }
     }
     loadModel();
   }, []);
 
-  // Start attendance detection
+  // Start detection loop
   useEffect(() => {
     if (!isRunning || !model) return;
 
@@ -52,81 +52,84 @@ export default function AttendanceDashboard() {
     const ctx = canvas.getContext("2d")!;
     runningRef.current = true;
 
-    async function setupCamera() {
-      setStatus("📷 Requesting camera...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-      });
-      video.srcObject = stream;
-
-      return new Promise<void>((resolve) => {
-        video.onloadedmetadata = () => {
-          video.play().then(() => {
-            setStatus("▶️ Video started. Detecting hand...");
-            resolve();
-          });
-        };
-      });
-    }
-
-    async function detectLoop() {
-      if (!runningRef.current || !model) return;
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      const predictions = await model.estimateHands(video, true);
-
-      const currentIndex = currentIndexRef.current;
-      const currentStudent = studentList[currentIndex];
-
-      if (predictions.length > 0 && currentIndex < 2) {
-        setStatus(`🖐️ Hand detected for ${currentStudent.name}`);
-
-        // draw hand points
-        predictions.forEach((hand) => {
-          hand.landmarks.forEach(([x, y]) => {
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = "#00ffcc";
-            ctx.shadowColor = "#00ffcc";
-            ctx.shadowBlur = 10;
-            ctx.fill();
-          });
+    async function startCamera() {
+      try {
+        setStatus("📷 Requesting camera...");
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
         });
+        video.srcObject = stream;
+        video.playsInline = true;
+        video.muted = true;
+        await video.play();
+        setStatus("▶️ Video started. Waiting for hand...");
 
-        if (!timeoutRef.current) {
-          timeoutRef.current = setTimeout(() => {
-            setStudentList((prev) =>
-              prev.map((s, i) =>
-                i === currentIndex ? { ...s, status: "Present" } : s
-              )
-            );
-            setStatus(`✅ Marked ${currentStudent.name} as Present`);
-            currentIndexRef.current += 1;
-            timeoutRef.current = null;
-          }, 1500);
-        }
-      } else if (currentIndex < 2) {
-        setStatus(`👀 Waiting for hand for ${currentStudent.name}`);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
-      } else {
-        setStatus("⚠️ Only first two students can be marked present");
+        const loop = async () => {
+          if (!runningRef.current || !model) return;
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          const predictions = await model.estimateHands(video, true);
+
+          const idx = currentIndexRef.current;
+
+          if (idx >= 2) {
+            setStatus("⚠️ Only first two students can be marked present");
+          } else {
+            const student = studentList[idx];
+
+            if (predictions.length > 0) {
+              // Draw hand landmarks
+              predictions.forEach((hand) =>
+                hand.landmarks.forEach(([x, y]) => {
+                  ctx.beginPath();
+                  ctx.arc(x, y, 5, 0, Math.PI * 2);
+                  ctx.fillStyle = "#00ffcc";
+                  ctx.fill();
+                })
+              );
+
+              const now = performance.now();
+              if (!handHoldStartRef.current) handHoldStartRef.current = now;
+
+              const elapsed = now - handHoldStartRef.current;
+
+              if (elapsed >= 1500) {
+                // mark present
+                setStudentList((prev) =>
+                  prev.map((s, i) =>
+                    i === idx ? { ...s, status: "Present" } : s
+                  )
+                );
+                setStatus(`✅ Marked ${student.name} as Present`);
+                currentIndexRef.current += 1;
+                handHoldStartRef.current = null;
+              } else {
+                setStatus(
+                  `🖐️ Hold hand for ${student.name} (${(1500 - elapsed) / 1000
+                    ).toFixed(1)}s)`
+                );
+              }
+            } else {
+              handHoldStartRef.current = null;
+              setStatus(`👀 Waiting for hand for ${student.name}`);
+            }
+          }
+
+          requestAnimationFrame(loop);
+        };
+
+        loop();
+      } catch (err) {
+        console.error(err);
+        setStatus("❌ Failed to access camera");
       }
-
-      if (runningRef.current) requestAnimationFrame(detectLoop);
     }
 
-    (async () => {
-      await setupCamera();
-      await tf.ready();
-      detectLoop();
-    })();
+    startCamera();
 
     return () => {
       runningRef.current = false;
@@ -139,6 +142,7 @@ export default function AttendanceDashboard() {
     setIsRunning(false);
     runningRef.current = false;
     currentIndexRef.current = 0;
+    handHoldStartRef.current = null;
     setStatus("✅ Attendance stopped");
   };
 
@@ -155,9 +159,8 @@ export default function AttendanceDashboard() {
     link.click();
   };
 
-  const totalStudents = studentList.length;
   const totalPresent = studentList.filter((s) => s.status === "Present").length;
-  const totalAbsent = totalStudents - totalPresent;
+  const totalAbsent = studentList.length - totalPresent;
 
   return (
     <div className="p-6">
@@ -167,6 +170,7 @@ export default function AttendanceDashboard() {
       <p className="text-center text-gray-600 mb-6">
         Course: <strong>CSC401 — Artificial Intelligence</strong>
       </p>
+
       <div className="flex flex-wrap justify-center gap-4 mb-6">
         <button
           onClick={() => setIsRunning(true)}
@@ -210,7 +214,7 @@ export default function AttendanceDashboard() {
       <div className="grid grid-cols-3 gap-4 text-center mb-6">
         <div className="bg-blue-50 rounded-lg p-3">
           <h2 className="text-blue-800 font-semibold">Total Students</h2>
-          <p className="text-2xl font-bold">{totalStudents}</p>
+          <p className="text-2xl font-bold">{studentList.length}</p>
         </div>
         <div className="bg-green-50 rounded-lg p-3">
           <h2 className="text-green-800 font-semibold">Present</h2>
@@ -250,7 +254,7 @@ export default function AttendanceDashboard() {
       </div>
 
       <p className="text-center mt-4 text-gray-500 text-sm">
-        ⚠️ Note: Only the first two students on the list are marked for demonstration. For educational purposes only.
+        ⚠️ Note: Only the first two students on the list are marked. Hand must be held steady for 1.5 seconds. For educational purposes only.
       </p>
     </div>
   );
