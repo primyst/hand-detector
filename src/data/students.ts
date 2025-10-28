@@ -1,6 +1,6 @@
 export const students = [
-  { name: "Abdulraheem Uthman", matricNumber: "LAU200001" },
-  { name: "Elegunde Oluwaseun", matricNumber: "LAU200002" },
+  { name: "Elegunde Oluwaseun", matricNumber: "LAU200001" },
+  { name: "Abdulraheem Uthman", matricNumber: "LAU200002" },
   { name: "Abdullateef Abdulqudus", matricNumber: "LAU200003" },
   { name: "Agboola Ayomide", matricNumber: "LAU200004" },
   { name: "Ahmed Fatima", matricNumber: "LAU200005" },
