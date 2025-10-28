@@ -27,7 +27,7 @@ export default function AttendanceDashboard() {
   const runningRef = useRef(false);
   const currentIndexRef = useRef(0);
 
-  // Load Handpose model
+  // Load Handpose
   useEffect(() => {
     async function loadModel() {
       try {
@@ -37,7 +37,7 @@ export default function AttendanceDashboard() {
         setModel(loaded);
         setStatus("✅ Model loaded. Ready to start attendance.");
       } catch (err) {
-        console.error("Model load error:", err);
+        console.error(err);
         setStatus("❌ Failed to load model.");
       }
     }
@@ -58,7 +58,7 @@ export default function AttendanceDashboard() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            width: { ideal: 320 }, // small for performance
+            width: { ideal: 320 }, // low-res for speed
             height: { ideal: 240 },
             facingMode: "user",
           },
@@ -73,15 +73,16 @@ export default function AttendanceDashboard() {
             } else reject("Video metadata not loaded");
           };
         });
+
         setStatus("▶️ Video started. Detecting hand...");
       } catch (err) {
-        console.error("Camera error:", err);
-        setStatus("❌ Failed to access camera");
+        console.error(err);
+        setStatus("❌ Failed to access camera.");
       }
     }
 
     let lastEstimateTime = 0;
-    const FPS = 10; // throttle detection
+    const FPS = 15; // throttle
 
     async function detectLoop() {
       if (!runningRef.current || !model) return;
@@ -99,56 +100,55 @@ export default function AttendanceDashboard() {
       const now = Date.now();
       if (now - lastEstimateTime > 1000 / FPS) {
         lastEstimateTime = now;
-        const predictions = await model.estimateHands(video, true);
-        const currentIndex = currentIndexRef.current;
 
-        if (predictions.length > 0) {
-          // Draw hand landmarks
-          predictions.forEach((hand) => {
-            hand.landmarks.forEach(([x, y]) => {
-              ctx.beginPath();
-              ctx.arc(
-                x,
-                y,
-                5,
-                0,
-                2 * Math.PI
-              );
-              ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555";
-              ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
-              ctx.shadowBlur = 10;
-              ctx.fill();
+        tf.engine().startScope();
+        try {
+          const predictions = await model.estimateHands(video, true);
+          const currentIndex = currentIndexRef.current;
+
+          if (predictions.length > 0) {
+            predictions.forEach((hand) => {
+              hand.landmarks.forEach(([x, y]) => {
+                ctx.beginPath();
+                ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555";
+                ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
+                ctx.shadowBlur = 10;
+                ctx.fill();
+              });
             });
-          });
 
-          if (currentIndex < 2) {
-            const currentStudent = studentList[currentIndex];
-            setPreviewStudent(currentStudent);
-            if (!timeoutRef.current) {
-              setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
-              timeoutRef.current = setTimeout(() => {
-                setStudentList((prev) =>
-                  prev.map((s, i) =>
-                    i === currentIndex ? { ...s, status: "Present" } : s
-                  )
-                );
-                setStatus(`✅ Marked ${currentStudent.name} as Present`);
-                currentIndexRef.current += 1;
-                setPreviewStudent(null);
-                timeoutRef.current = null;
-              }, 1500);
+            if (currentIndex < 2) {
+              const currentStudent = studentList[currentIndex];
+              setPreviewStudent(currentStudent);
+              if (!timeoutRef.current) {
+                setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
+                timeoutRef.current = setTimeout(() => {
+                  setStudentList((prev) =>
+                    prev.map((s, i) =>
+                      i === currentIndex ? { ...s, status: "Present" } : s
+                    )
+                  );
+                  setStatus(`✅ Marked ${currentStudent.name} as Present`);
+                  currentIndexRef.current += 1;
+                  setPreviewStudent(null);
+                  timeoutRef.current = null;
+                }, 1500);
+              }
+            } else {
+              setPreviewStudent(null);
+              setStatus("❌ Hand detected, but student not counted");
             }
           } else {
+            setStatus("🖐️ Wait for hand...");
             setPreviewStudent(null);
-            setStatus("❌ Hand detected, but student not counted");
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
+            }
           }
-        } else {
-          setStatus("🖐️ Wait for hand...");
-          setPreviewStudent(null);
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
+        } finally {
+          tf.engine().endScope();
         }
       }
 
@@ -166,7 +166,7 @@ export default function AttendanceDashboard() {
       const tracks = (video.srcObject as MediaStream | null)?.getTracks();
       tracks?.forEach((t) => t.stop());
     };
-  }, [isRunning, model]);
+  }, [isRunning, model, studentList]);
 
   const handleStop = () => {
     setIsRunning(false);
@@ -182,7 +182,6 @@ export default function AttendanceDashboard() {
     const csvContent =
       "data:text/csv;charset=utf-8," +
       [headers, ...rows].map((r) => r.join(",")).join("\n");
-
     const link = document.createElement("a");
     link.href = encodeURI(csvContent);
     link.download = "attendance_list.csv";
@@ -263,7 +262,7 @@ export default function AttendanceDashboard() {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full border border-gray-300 rounded-lg text-center">
+<table className="min-w-full border border-gray-300 rounded-lg text-center">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-2 border">Name</th>
