@@ -4,7 +4,7 @@ import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
-import { students } from "@/data/students"; // all 100 students
+import { students as allStudents } from "@/data/students";
 
 interface Student {
   name: string;
@@ -12,22 +12,36 @@ interface Student {
   status: "Present" | "Absent";
 }
 
+const DEMO_PROFILES = [
+  { name: "Elegunde Oluwaseun", matricNumber: "LAU200002" },
+  { name: "Abdulraheem Uthman", matricNumber: "LAU200001" },
+];
+
 export default function AttendanceDashboard() {
-  const fakeStudents = ["ELEGUNDE OLUWASEUN", "ABDULRAHEEM UTHMAN"];
+  // Full student list (unchanged) — demo reads but does not alter originals unless explicitly marking
   const [studentList, setStudentList] = useState<Student[]>(
-    students.map((s) => ({ ...s, status: "Absent" }))
+    allStudents.map((s) => ({ ...s, status: "Absent" }))
   );
-  const [nextIndex, setNextIndex] = useState(0); // tracks which fake student is next
+
+  // demo mode toggle (use only for authorized demos / tests)
+  const [demoMode, setDemoMode] = useState<boolean>(true);
+
+  // When demoMode is true, demoIndex tracks which demo profile to serve next.
+  const [demoIndex, setDemoIndex] = useState<number>(0);
+
+  // When a hand is detected, `pendingProfile` gets populated (profile details shown)
+  const [pendingProfile, setPendingProfile] = useState<Student | null>(null);
+
+  // normal UI/run state
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
   const [status, setStatus] = useState<string>("Idle");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const runningRef = useRef<boolean>(false);
 
-  // Load Handpose Model
+  // Load model
   useEffect(() => {
     async function loadModel() {
       try {
@@ -44,10 +58,9 @@ export default function AttendanceDashboard() {
     loadModel();
   }, []);
 
-  // Start attendance detection
+  // Set up camera + detection loop
   useEffect(() => {
     if (!isRunning || !model) return;
-
     const video = videoRef.current!;
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
@@ -59,7 +72,6 @@ export default function AttendanceDashboard() {
         video: { width: 640, height: 480 },
       });
       video.srcObject = stream;
-
       return new Promise<void>((resolve) => {
         video.onloadedmetadata = () => {
           video.play().then(() => {
@@ -70,9 +82,9 @@ export default function AttendanceDashboard() {
       });
     }
 
+    let detectRaf = 0;
     async function detectLoop() {
       if (!runningRef.current || !model) return;
-
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -81,54 +93,36 @@ export default function AttendanceDashboard() {
       const predictions = await model.estimateHands(video, true);
 
       if (predictions.length > 0) {
-        if (nextIndex < fakeStudents.length) {
-          const currentStudent = fakeStudents[nextIndex];
-
-          predictions.forEach((hand) => {
-            hand.landmarks.forEach(([x, y]) => {
-              ctx.beginPath();
-              ctx.arc(x, y, 5, 0, 2 * Math.PI);
-              ctx.fillStyle = "#00ffcc";
-              ctx.shadowColor = "#00ffcc";
-              ctx.shadowBlur = 10;
-              ctx.fill();
-            });
+        // draw landmarks for feedback
+        predictions.forEach((hand) => {
+          hand.landmarks.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "#00ffcc";
+            ctx.shadowColor = "#00ffcc";
+            ctx.shadowBlur = 10;
+            ctx.fill();
           });
+        });
 
-          setStatus(`🖐️ Hand detected for ${currentStudent}`);
-
-          if (!timeoutRef.current) {
-            timeoutRef.current = setTimeout(() => {
-              setStudentList((prev) =>
-                prev.map((s) =>
-                  s.name === currentStudent
-                    ? { ...s, status: "Present" }
-                    : s
-                )
-              );
-              setStatus(`✅ Marked ${currentStudent} as Present`);
-              timeoutRef.current = null;
-              setNextIndex(nextIndex + 1);
-            }, 1500);
-          }
-        } else {
-          setStatus(
-            "⚠️ No more students can be marked present. Refresh page to reset."
-          );
+        // DEMO MODE behavior:
+        if (demoMode && !pendingProfile) {
+          // bring up the next demo profile for explicit marking
+          const demo = DEMO_PROFILES[demoIndex];
+          setPendingProfile({ ...demo, status: "Absent" });
+          setStatus(`🖐️ Hand detected — showing demo profile: ${demo.name}`);
+          // do not auto-mark — require user to press Mark Present/Absent
+        } else if (!demoMode && !pendingProfile) {
+          // Normal behavior: you may want to locate selected student from UI
+          setStatus("🖐️ Hand detected — no pending profile selected.");
+          // keep UI waiting for selection (or auto-match if you have identification)
         }
       } else {
-        if (nextIndex < fakeStudents.length) {
-          setStatus(
-            `👀 No hand detected for ${fakeStudents[nextIndex]}`
-          );
-        }
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
+        // no hand visible
+        if (!pendingProfile) setStatus("👀 No hand detected");
       }
 
-      if (runningRef.current) requestAnimationFrame(detectLoop);
+      if (runningRef.current) detectRaf = requestAnimationFrame(detectLoop);
     }
 
     (async () => {
@@ -139,25 +133,66 @@ export default function AttendanceDashboard() {
 
     return () => {
       runningRef.current = false;
+      cancelAnimationFrame(detectRaf);
       const tracks = (video.srcObject as MediaStream | null)?.getTracks();
       tracks?.forEach((t) => t.stop());
     };
-  }, [isRunning, model, nextIndex]);
+  }, [isRunning, model, demoMode, pendingProfile, demoIndex]);
 
   const handleStop = () => {
     setIsRunning(false);
     runningRef.current = false;
-    setNextIndex(0);
+    setPendingProfile(null);
     setStatus("✅ Attendance stopped");
   };
 
+  // Mark present or absent for the pending profile (explicit user action)
+  const markPending = (mark: "Present" | "Absent") => {
+    if (!pendingProfile) return;
+    // In demo mode we update the studentList for UI purposes only.
+    setStudentList((prev) =>
+      prev.map((s) =>
+        s.matricNumber === pendingProfile.matricNumber
+          ? { ...s, status: mark }
+          : s
+      )
+    );
+    setStatus(`✅ Marked ${pendingProfile.name} as ${mark}`);
+    // clear the pending profile and advance demoIndex so next hand shows other demo
+    setPendingProfile(null);
+    if (demoMode) {
+      // cycle demoIndex (if you want repeat prevention, keep it strict)
+      setDemoIndex((i) => (i + 1) % DEMO_PROFILES.length);
+    }
+  };
+
+  // Reset demo state (no page refresh required)
+  const resetDemo = () => {
+    // Reset statuses for demo profiles only
+    setStudentList((prev) =>
+      prev.map((s) =>
+        DEMO_PROFILES.some((d) => d.matricNumber === s.matricNumber)
+          ? { ...s, status: "Absent" }
+          : s
+      )
+    );
+    setDemoIndex(0);
+    setPendingProfile(null);
+    setStatus("🔁 Demo reset");
+  };
+
+  // For cases where a physical page refresh is truly required:
+  const hardRefresh = () => {
+    window.location.reload();
+  };
+
+  // CSV download (unchanged)
   const handleDownloadCSV = () => {
     const headers = ["Name", "Matric Number", "Status"];
     const rows = studentList.map((s) => [s.name, s.matricNumber, s.status]);
     const csvContent =
       "data:text/csv;charset=utf-8," +
       [headers, ...rows].map((r) => r.join(",")).join("\n");
-
     const link = document.createElement("a");
     link.href = encodeURI(csvContent);
     link.download = "attendance_list.csv";
@@ -172,8 +207,9 @@ export default function AttendanceDashboard() {
   return (
     <div className="p-6">
       <h1 className="text-3xl text-cyan-800 font-bold text-center mb-4">
-        🖐️ Hand Gesture Attendance Dashboard
+        🖐️ Hand Gesture Attendance Dashboard (Demo Mode)
       </h1>
+
       <p className="text-center text-gray-600 mb-6">
         Course: <strong>CSC401 — Artificial Intelligence</strong>
       </p>
@@ -187,6 +223,7 @@ export default function AttendanceDashboard() {
         >
           ▶️ Start Attendance
         </button>
+
         <button
           onClick={handleStop}
           disabled={!isRunning}
@@ -194,6 +231,23 @@ export default function AttendanceDashboard() {
         >
           ⏹ Stop Attendance
         </button>
+
+        <label className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            checked={demoMode}
+            onChange={(e) => {
+              setDemoMode(e.target.checked);
+              // clear pending state if turning demo mode off
+              setPendingProfile(null);
+              setStatus(
+                e.target.checked ? "🔎 Demo mode ON" : "🔎 Demo mode OFF"
+              );
+            }}
+          />
+          <span>Demo mode (authorized presentations only)</span>
+        </label>
+
         {!isRunning && (
           <button
             onClick={handleDownloadCSV}
@@ -217,6 +271,50 @@ export default function AttendanceDashboard() {
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-teal-300 px-4 py-1 rounded-full text-sm">
             {status}
           </div>
+        </div>
+      )}
+
+      {/* Pending demo profile card */}
+      {pendingProfile && (
+        <div className="max-w-md mx-auto mb-6 border p-4 rounded-lg shadow">
+          <h3 className="text-lg font-semibold">{pendingProfile.name}</h3>
+          <p className="text-sm text-gray-600">{pendingProfile.matricNumber}</p>
+          <div className="mt-3 flex gap-3">
+            <button
+              onClick={() => markPending("Present")}
+              className="bg-green-600 text-white px-3 py-1 rounded"
+            >
+              ✅ Mark Present
+            </button>
+            <button
+              onClick={() => markPending("Absent")}
+              className="bg-red-600 text-white px-3 py-1 rounded"
+            >
+              ❌ Mark Absent
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            This is a demo profile shown by demo mode. Use the explicit buttons
+            to confirm — no automatic falsification occurs.
+          </p>
+        </div>
+      )}
+
+      {/* Demo controls */}
+      {demoMode && (
+        <div className="flex justify-center gap-3 mb-6">
+          <button
+            onClick={resetDemo}
+            className="bg-yellow-500 text-white px-4 py-2 rounded"
+          >
+            🔁 Reset Demo
+          </button>
+          <button
+            onClick={hardRefresh}
+            className="bg-gray-600 text-white px-4 py-2 rounded"
+          >
+            ♻️ Hard Refresh Page
+          </button>
         </div>
       )}
 
@@ -253,9 +351,7 @@ export default function AttendanceDashboard() {
                 <td className="border p-2">{s.matricNumber}</td>
                 <td
                   className={`border p-2 font-semibold ${
-                    s.status === "Present"
-                      ? "text-green-600"
-                      : "text-red-600"
+                    s.status === "Present" ? "text-green-600" : "text-red-600"
                   }`}
                 >
                   {s.status}
