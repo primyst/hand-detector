@@ -16,18 +16,18 @@ export default function AttendanceDashboard() {
   const [studentList, setStudentList] = useState<Student[]>(
     students.map((s) => ({ ...s, status: "Absent" }))
   );
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isRunning, setIsRunning] = useState(false);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
-  const [status, setStatus] = useState<string>("Idle");
+  const [status, setStatus] = useState("Idle");
+  const [previewStudent, setPreviewStudent] = useState<Student | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const runningRef = useRef<boolean>(false);
-  const currentIndexRef = useRef<number>(0); // track first 2 students
-  const [previewStudent, setPreviewStudent] = useState<Student | null>(null);
+  const runningRef = useRef(false);
+  const currentIndexRef = useRef(0);
 
-  // Load Handpose Model
+  // Load Handpose model
   useEffect(() => {
     async function loadModel() {
       try {
@@ -44,7 +44,7 @@ export default function AttendanceDashboard() {
     loadModel();
   }, []);
 
-  // Start attendance detection
+  // Start detection
   useEffect(() => {
     if (!isRunning || !model) return;
 
@@ -55,74 +55,100 @@ export default function AttendanceDashboard() {
 
     async function setupCamera() {
       setStatus("📷 Requesting camera...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-      });
-      video.srcObject = stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 320 }, // small for performance
+            height: { ideal: 240 },
+            facingMode: "user",
+          },
+          audio: false,
+        });
+        video.srcObject = stream;
 
-      return new Promise<void>((resolve) => {
-        video.onloadedmetadata = () => {
-          video.play().then(() => {
-            setStatus("▶️ Video started. Detecting hand...");
-            resolve();
-          });
-        };
-      });
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            if (video.videoWidth && video.videoHeight) {
+              video.play().then(resolve).catch(reject);
+            } else reject("Video metadata not loaded");
+          };
+        });
+        setStatus("▶️ Video started. Detecting hand...");
+      } catch (err) {
+        console.error("Camera error:", err);
+        setStatus("❌ Failed to access camera");
+      }
     }
+
+    let lastEstimateTime = 0;
+    const FPS = 10; // throttle detection
 
     async function detectLoop() {
       if (!runningRef.current || !model) return;
+
+      if (!video.videoWidth || !video.videoHeight) {
+        requestAnimationFrame(detectLoop);
+        return;
+      }
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const predictions = await model.estimateHands(video, true);
-      const currentIndex = currentIndexRef.current;
+      const now = Date.now();
+      if (now - lastEstimateTime > 1000 / FPS) {
+        lastEstimateTime = now;
+        const predictions = await model.estimateHands(video, true);
+        const currentIndex = currentIndexRef.current;
 
-      if (predictions.length > 0) {
-        // Draw hand landmarks
-        predictions.forEach((hand) => {
-          hand.landmarks.forEach(([x, y]) => {
-            ctx.beginPath();
-            ctx.arc(x, y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555"; // green for first 2, red otherwise
-            ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
-            ctx.shadowBlur = 10;
-            ctx.fill();
-          });
-        });
-
-        if (currentIndex < 2) {
-          // Preview student
-          const currentStudent = studentList[currentIndex];
-          if (!timeoutRef.current) {
-            setPreviewStudent(currentStudent);
-            setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
-            timeoutRef.current = setTimeout(() => {
-              setStudentList((prev) =>
-                prev.map((s, i) =>
-                  i === currentIndex ? { ...s, status: "Present" } : s
-                )
+        if (predictions.length > 0) {
+          // Draw hand landmarks
+          predictions.forEach((hand) => {
+            hand.landmarks.forEach(([x, y]) => {
+              ctx.beginPath();
+              ctx.arc(
+                x,
+                y,
+                5,
+                0,
+                2 * Math.PI
               );
-              setStatus(`✅ Marked ${currentStudent.name} as Present`);
-              currentIndexRef.current += 1;
-              setPreviewStudent(null);
-              timeoutRef.current = null;
-            }, 1500);
+              ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555";
+              ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
+              ctx.shadowBlur = 10;
+              ctx.fill();
+            });
+          });
+
+          if (currentIndex < 2) {
+            const currentStudent = studentList[currentIndex];
+            setPreviewStudent(currentStudent);
+            if (!timeoutRef.current) {
+              setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
+              timeoutRef.current = setTimeout(() => {
+                setStudentList((prev) =>
+                  prev.map((s, i) =>
+                    i === currentIndex ? { ...s, status: "Present" } : s
+                  )
+                );
+                setStatus(`✅ Marked ${currentStudent.name} as Present`);
+                currentIndexRef.current += 1;
+                setPreviewStudent(null);
+                timeoutRef.current = null;
+              }, 1500);
+            }
+          } else {
+            setPreviewStudent(null);
+            setStatus("❌ Hand detected, but student not counted");
           }
         } else {
-          // Beyond first 2 students: show invalid hand preview
+          setStatus("🖐️ Wait for hand...");
           setPreviewStudent(null);
-          setStatus("❌ Hand detected, but student not counted");
-        }
-      } else {
-        setStatus("🖐️ Wait for hand...");
-        setPreviewStudent(null);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
         }
       }
 
