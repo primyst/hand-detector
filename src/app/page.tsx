@@ -25,6 +25,7 @@ export default function AttendanceDashboard() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const runningRef = useRef<boolean>(false);
   const currentIndexRef = useRef<number>(0); // track first 2 students
+  const [previewStudent, setPreviewStudent] = useState<Student | null>(null);
 
   // Load Handpose Model
   useEffect(() => {
@@ -86,17 +87,19 @@ export default function AttendanceDashboard() {
           hand.landmarks.forEach(([x, y]) => {
             ctx.beginPath();
             ctx.arc(x, y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = "#00ffcc";
-            ctx.shadowColor = "#00ffcc";
+            ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555"; // green for first 2, red otherwise
+            ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
             ctx.shadowBlur = 10;
             ctx.fill();
           });
         });
 
-        // First two students: mark present
         if (currentIndex < 2) {
+          // Preview student
           const currentStudent = studentList[currentIndex];
           if (!timeoutRef.current) {
+            setPreviewStudent(currentStudent);
+            setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
             timeoutRef.current = setTimeout(() => {
               setStudentList((prev) =>
                 prev.map((s, i) =>
@@ -105,17 +108,18 @@ export default function AttendanceDashboard() {
               );
               setStatus(`✅ Marked ${currentStudent.name} as Present`);
               currentIndexRef.current += 1;
+              setPreviewStudent(null);
               timeoutRef.current = null;
             }, 1500);
-          } else {
-            setStatus("🖐️ Wait for hand...");
           }
         } else {
-          // Beyond first 2 students: show invalid hand
-          setStatus("❌ Invalid hand detected (not counted)");
+          // Beyond first 2 students: show invalid hand preview
+          setPreviewStudent(null);
+          setStatus("❌ Hand detected, but student not counted");
         }
       } else {
         setStatus("🖐️ Wait for hand...");
+        setPreviewStudent(null);
         if (timeoutRef.current) {
           clearTimeout(timeoutRef.current);
           timeoutRef.current = null;
@@ -143,6 +147,7 @@ export default function AttendanceDashboard() {
     runningRef.current = false;
     currentIndexRef.current = 0;
     setStatus("✅ Attendance stopped");
+    setPreviewStudent(null);
   };
 
   const handleDownloadCSV = () => {
@@ -205,6 +210,11 @@ export default function AttendanceDashboard() {
             muted
           />
           <canvas ref={canvasRef} className="absolute w-full h-full" />
+          {previewStudent && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-yellow-500 bg-opacity-70 text-black px-4 py-1 rounded-full text-sm">
+              👀 Preview: {previewStudent.name}
+            </div>
+          )}
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-teal-300 px-4 py-1 rounded-full text-sm">
             {status}
           </div>
