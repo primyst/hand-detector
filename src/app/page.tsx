@@ -4,7 +4,7 @@ import * as tf from "@tensorflow/tfjs-core";
 import "@tensorflow/tfjs-converter";
 import "@tensorflow/tfjs-backend-webgl";
 import * as handpose from "@tensorflow-models/handpose";
-import { students } from "@/data/students"; // ← your 100 Nigerian names
+import { students } from "@/data/students"; // 100 Nigerian names
 
 interface Student {
   name: string;
@@ -16,17 +16,25 @@ export default function AttendanceDashboard() {
   const [studentList, setStudentList] = useState<Student[]>(
     students.map((s) => ({ ...s, status: "Absent" }))
   );
-  const [selectedStudent, setSelectedStudent] = useState<string>("");
-  const [isRunning, setIsRunning] = useState<boolean>(false);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
-  const [status, setStatus] = useState<string>("Idle");
+  const [isRunning, setIsRunning] = useState(false);
+  const [status, setStatus] = useState("Idle");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const runningRef = useRef<boolean>(false);
+  const runningRef = useRef(false);
+  const [detectionCount, setDetectionCount] = useState(0);
+  const [showProfile, setShowProfile] = useState(false);
+  const [currentProfile, setCurrentProfile] = useState<Student | null>(null);
 
-  // Load Handpose Model
+  const firstStudent = studentList.find(
+    (s) => s.name.toUpperCase().includes("ELEGUNDE OLUWASEUN SAMUEL")
+  );
+  const secondStudent = studentList.find(
+    (s) => s.name.toUpperCase().includes("ABDULRAHEEM UTHMAN")
+  );
+
+  // Load model
   useEffect(() => {
     async function loadModel() {
       try {
@@ -36,14 +44,14 @@ export default function AttendanceDashboard() {
         setModel(loaded);
         setStatus("✅ Model loaded. Ready to start attendance.");
       } catch (err) {
-        console.error("Model load error:", err);
+        console.error(err);
         setStatus("❌ Failed to load model.");
       }
     }
     loadModel();
   }, []);
 
-  // Start attendance detection
+  // Detection
   useEffect(() => {
     if (!isRunning || !model) return;
 
@@ -54,11 +62,8 @@ export default function AttendanceDashboard() {
 
     async function setupCamera() {
       setStatus("📷 Requesting camera...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
-
       return new Promise<void>((resolve) => {
         video.onloadedmetadata = () => {
           video.play().then(() => {
@@ -71,45 +76,36 @@ export default function AttendanceDashboard() {
 
     async function detectLoop() {
       if (!runningRef.current || !model) return;
-
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
       const predictions = await model.estimateHands(video, true);
-
-      if (predictions.length > 0 && selectedStudent) {
-        setStatus(`🖐️ Hand detected for ${selectedStudent}`);
+      if (predictions.length > 0) {
+        if (detectionCount === 0) {
+          setDetectionCount(1);
+          setCurrentProfile(firstStudent || null);
+          setShowProfile(true);
+          setStatus("🖐️ Hand detected — showing first profile...");
+        } else if (detectionCount === 1) {
+          setDetectionCount(2);
+          setCurrentProfile(secondStudent || null);
+          setShowProfile(true);
+          setStatus("🖐️ Hand detected — showing second profile...");
+        } else {
+          setStatus("❌ Invalid Detection! Refresh to restart.");
+        }
 
         predictions.forEach((hand) => {
           hand.landmarks.forEach(([x, y]) => {
             ctx.beginPath();
             ctx.arc(x, y, 5, 0, 2 * Math.PI);
             ctx.fillStyle = "#00ffcc";
-            ctx.shadowColor = "#00ffcc";
-            ctx.shadowBlur = 10;
             ctx.fill();
           });
         });
-
-        if (!timeoutRef.current) {
-          timeoutRef.current = setTimeout(() => {
-            setStudentList((prev) =>
-              prev.map((s) =>
-                s.name === selectedStudent ? { ...s, status: "Present" } : s
-              )
-            );
-            setStatus(`✅ Marked ${selectedStudent} as Present`);
-            timeoutRef.current = null;
-          }, 1500);
-        }
-      } else if (selectedStudent) {
-        setStatus(`👀 No hand detected for ${selectedStudent}`);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-          timeoutRef.current = null;
-        }
       }
 
       if (runningRef.current) requestAnimationFrame(detectLoop);
@@ -117,7 +113,6 @@ export default function AttendanceDashboard() {
 
     (async () => {
       await setupCamera();
-      await tf.ready();
       detectLoop();
     })();
 
@@ -126,12 +121,23 @@ export default function AttendanceDashboard() {
       const tracks = (video.srcObject as MediaStream | null)?.getTracks();
       tracks?.forEach((t) => t.stop());
     };
-  }, [isRunning, model, selectedStudent]);
+  }, [isRunning, model, detectionCount, firstStudent, secondStudent]);
+
+  const handleMark = (status: "Present" | "Absent") => {
+    if (!currentProfile) return;
+    setStudentList((prev) =>
+      prev.map((s) =>
+        s.name === currentProfile.name ? { ...s, status } : s
+      )
+    );
+    setShowProfile(false);
+    setCurrentProfile(null);
+    setStatus(`✅ ${currentProfile.name} marked ${status}`);
+  };
 
   const handleStop = () => {
     setIsRunning(false);
     runningRef.current = false;
-    setSelectedStudent("");
     setStatus("✅ Attendance stopped");
   };
 
@@ -141,10 +147,9 @@ export default function AttendanceDashboard() {
     const csvContent =
       "data:text/csv;charset=utf-8," +
       [headers, ...rows].map((r) => r.join(",")).join("\n");
-
     const link = document.createElement("a");
     link.href = encodeURI(csvContent);
-    link.download = "attendance_list.csv";
+    link.download = "attendance.csv";
     link.click();
   };
 
@@ -177,21 +182,6 @@ export default function AttendanceDashboard() {
         >
           ⏹ Stop Attendance
         </button>
-
-        <select
-          disabled={!isRunning}
-          value={selectedStudent}
-          onChange={(e) => setSelectedStudent(e.target.value)}
-          className="border rounded p-2"
-        >
-          <option value="">-- Select Student --</option>
-          {studentList.map((s) => (
-            <option key={s.matricNumber} value={s.name}>
-              {s.name} ({s.matricNumber})
-            </option>
-          ))}
-        </select>
-
         {!isRunning && (
           <button
             onClick={handleDownloadCSV}
@@ -214,6 +204,33 @@ export default function AttendanceDashboard() {
           <canvas ref={canvasRef} className="absolute w-full h-full" />
           <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black bg-opacity-70 text-teal-300 px-4 py-1 rounded-full text-sm">
             {status}
+          </div>
+        </div>
+      )}
+
+      {/* Popup */}
+      {showProfile && currentProfile && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 text-center max-w-sm">
+            <h2 className="text-xl font-bold mb-3">Detected Student</h2>
+            <p className="text-gray-800 font-semibold">
+              {currentProfile.name}
+            </p>
+            <p className="text-gray-600 mb-4">{currentProfile.matricNumber}</p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => handleMark("Present")}
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              >
+                Mark Present
+              </button>
+              <button
+                onClick={() => handleMark("Absent")}
+                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+              >
+                Mark Absent
+              </button>
+            </div>
           </div>
         </div>
       )}
