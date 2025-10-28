@@ -70,60 +70,60 @@ export default function AttendanceDashboard() {
     }
 
     async function detectLoop() {
-  if (!runningRef.current || !model) return;
+      if (!runningRef.current || !model) return;
 
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  const predictions = await model.estimateHands(video, true);
+      const predictions = await model.estimateHands(video, true);
+      const currentIndex = currentIndexRef.current;
 
-  const currentIndex = currentIndexRef.current;
+      if (predictions.length > 0) {
+        // Draw hand landmarks
+        predictions.forEach((hand) => {
+          hand.landmarks.forEach(([x, y]) => {
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = "#00ffcc";
+            ctx.shadowColor = "#00ffcc";
+            ctx.shadowBlur = 10;
+            ctx.fill();
+          });
+        });
 
-  // Draw hand points if any
-  if (predictions.length > 0) {
-    predictions.forEach((hand) => {
-      hand.landmarks.forEach(([x, y]) => {
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = "#00ffcc";
-        ctx.shadowColor = "#00ffcc";
-        ctx.shadowBlur = 10;
-        ctx.fill();
-      });
-    });
-  }
+        // First two students: mark present
+        if (currentIndex < 2) {
+          const currentStudent = studentList[currentIndex];
+          if (!timeoutRef.current) {
+            timeoutRef.current = setTimeout(() => {
+              setStudentList((prev) =>
+                prev.map((s, i) =>
+                  i === currentIndex ? { ...s, status: "Present" } : s
+                )
+              );
+              setStatus(`✅ Marked ${currentStudent.name} as Present`);
+              currentIndexRef.current += 1;
+              timeoutRef.current = null;
+            }, 1500);
+          } else {
+            setStatus("🖐️ Wait for hand...");
+          }
+        } else {
+          // Beyond first 2 students: show invalid hand
+          setStatus("❌ Invalid hand detected (not counted)");
+        }
+      } else {
+        setStatus("🖐️ Wait for hand...");
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+      }
 
-  if (predictions.length > 0 && currentIndex < 2) {
-    // Hand detected and first 2 students
-    const currentStudent = studentList[currentIndex];
-
-    if (!timeoutRef.current) {
-      timeoutRef.current = setTimeout(() => {
-        setStudentList((prev) =>
-          prev.map((s, i) =>
-            i === currentIndex ? { ...s, status: "Present" } : s
-          )
-        );
-        setStatus(`✅ Marked ${currentStudent.name} as Present`);
-        currentIndexRef.current += 1;
-        timeoutRef.current = null;
-      }, 1500);
-    } else {
-      setStatus("🖐️ Wait for hand...");
+      if (runningRef.current) requestAnimationFrame(detectLoop);
     }
-  } else {
-    // Either no hand or past first 2 students
-    setStatus("🖐️ Wait for hand...");
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }
-
-  if (runningRef.current) requestAnimationFrame(detectLoop);
-}
 
     (async () => {
       await setupCamera();
@@ -136,7 +136,7 @@ export default function AttendanceDashboard() {
       const tracks = (video.srcObject as MediaStream | null)?.getTracks();
       tracks?.forEach((t) => t.stop());
     };
-  }, [isRunning, model, studentList]);
+  }, [isRunning, model]);
 
   const handleStop = () => {
     setIsRunning(false);
@@ -170,6 +170,7 @@ export default function AttendanceDashboard() {
       <p className="text-center text-gray-600 mb-6">
         Course: <strong>CSC401 — Artificial Intelligence</strong>
       </p>
+
       <div className="flex flex-wrap justify-center gap-4 mb-6">
         <button
           onClick={() => setIsRunning(true)}
