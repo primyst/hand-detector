@@ -19,15 +19,15 @@ export default function AttendanceDashboard() {
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [model, setModel] = useState<handpose.HandPose | null>(null);
   const [status, setStatus] = useState<string>("Idle");
+  const [previewStudent, setPreviewStudent] = useState<Student | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const runningRef = useRef<boolean>(false);
-  const currentIndexRef = useRef<number>(0); // track first 2 students
-  const [previewStudent, setPreviewStudent] = useState<Student | null>(null);
+  const currentIndexRef = useRef<number>(0);
 
-  // Load Handpose Model
+  // Load Handpose model
   useEffect(() => {
     async function loadModel() {
       try {
@@ -44,7 +44,7 @@ export default function AttendanceDashboard() {
     loadModel();
   }, []);
 
-  // Start attendance detection
+  // Attendance detection
   useEffect(() => {
     if (!isRunning || !model) return;
 
@@ -55,26 +55,38 @@ export default function AttendanceDashboard() {
 
     async function setupCamera() {
       setStatus("📷 Requesting camera...");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-      });
-      video.srcObject = stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: false,
+        });
+        video.srcObject = stream;
 
-      return new Promise<void>((resolve) => {
-        video.onloadedmetadata = () => {
-          video.play().then(() => {
-            setStatus("▶️ Video started. Detecting hand...");
-            resolve();
-          });
-        };
-      });
+        await new Promise<void>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            video.play()
+              .then(() => {
+                setStatus("▶️ Video started. Detecting hand...");
+                resolve();
+              })
+              .catch(reject);
+          };
+          setTimeout(() => {
+            if (video.videoWidth && video.videoHeight) resolve();
+            else reject("Video metadata not loaded");
+          }, 2000);
+        });
+      } catch (err) {
+        console.error("Camera error:", err);
+        setStatus("❌ Failed to access camera");
+      }
     }
 
     async function detectLoop() {
       if (!runningRef.current || !model) return;
 
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -87,18 +99,18 @@ export default function AttendanceDashboard() {
           hand.landmarks.forEach(([x, y]) => {
             ctx.beginPath();
             ctx.arc(x, y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555"; // green for first 2, red otherwise
+            ctx.fillStyle = currentIndex < 2 ? "#00ffcc" : "#ff5555";
             ctx.shadowColor = currentIndex < 2 ? "#00ffcc" : "#ff5555";
             ctx.shadowBlur = 10;
             ctx.fill();
           });
         });
 
+        // Preview student for first 2
         if (currentIndex < 2) {
-          // Preview student
           const currentStudent = studentList[currentIndex];
+          setPreviewStudent(currentStudent);
           if (!timeoutRef.current) {
-            setPreviewStudent(currentStudent);
             setStatus(`🖐️ Detected hand. Marking ${currentStudent.name}...`);
             timeoutRef.current = setTimeout(() => {
               setStudentList((prev) =>
@@ -113,7 +125,6 @@ export default function AttendanceDashboard() {
             }, 1500);
           }
         } else {
-          // Beyond first 2 students: show invalid hand preview
           setPreviewStudent(null);
           setStatus("❌ Hand detected, but student not counted");
         }
